@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e  # Exit on error
+set -e  # Exit immediately on error
 set -o pipefail
 
 echo "🔧 ML Data Pipeline Setup"
@@ -10,16 +10,16 @@ read -p "📄 Enter path to input CSV file: " CSV_PATH
 read -p "💾 Enter desired SQLite DB name (e.g., loan_data.db): " DB_NAME
 read -p "🐍 Enter Conda environment name to use/create (e.g., ml-env): " CONDA_ENV
 
-# Ensure .db extension
+# Ensure DB file ends in .db
 [[ "$DB_NAME" != *.db ]] && DB_NAME="${DB_NAME}.db"
 
-# === 2. Check/Create Conda environment ===
+# === 2. Conda setup ===
 echo "🧪 Checking or creating Conda environment '$CONDA_ENV'..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
 if ! conda info --envs | awk '{print $1}' | grep -qx "$CONDA_ENV"; then
     echo "📦 Creating Conda environment '$CONDA_ENV'..."
-    conda create -y -n "$CONDA_ENV" python=3.10 pandas scikit-learn matplotlib xgboost lightgbm pytorch -c pytorch -c conda-forge
+    conda create -y -n "$CONDA_ENV" python=3.10 pandas scikit-learn matplotlib xgboost lightgbm pytorch seaborn -c conda-forge -c pytorch
 else
     echo "✅ Conda environment '$CONDA_ENV' already exists."
 fi
@@ -33,8 +33,12 @@ echo "📥 Importing CSV into SQLite database '$DB_NAME'..."
 python3 - <<EOF
 import pandas as pd
 import sqlite3
-df = pd.read_csv("$CSV_PATH")
-conn = sqlite3.connect("$DB_NAME")
+
+csv_path = "$CSV_PATH"
+db_name = "$DB_NAME"
+
+df = pd.read_csv(csv_path)
+conn = sqlite3.connect(db_name)
 df.to_sql("loan_data", conn, if_exists="replace", index=False)
 conn.close()
 print("✅ Data successfully loaded into 'loan_data' table.")
@@ -42,21 +46,26 @@ EOF
 
 # === 5. Run SQL cleaning script ===
 echo "🧹 Running data cleaning SQL..."
-if [[ ! -f 01_data_cleaning.sql ]]; then
-    echo "❌ Error: '01_data_cleaning.sql' not found."
+SCRIPT_DIR="./Scripts"
+SQL_FILE="${SCRIPT_DIR}/01_data_cleaning.sql"
+
+if [[ ! -f "$SQL_FILE" ]]; then
+    echo "❌ Error: SQL cleaning file not found at '$SQL_FILE'."
     exit 1
 fi
 
-sqlite3 "$DB_NAME" < 01_data_cleaning.sql
+sqlite3 "$DB_NAME" < "$SQL_FILE"
 echo "✅ SQL cleaning completed."
 
-# === 6. Run ML model training ===
+# === 6. Run ML training script ===
 echo "🤖 Running ML model pipeline..."
-if [[ ! -f 02_train_models.py ]]; then
-    echo "❌ Error: '02_train_models.py' not found."
+PYTHON_SCRIPT="${SCRIPT_DIR}/02_train_models.py"
+
+if [[ ! -f "$PYTHON_SCRIPT" ]]; then
+    echo "❌ Error: Python model training script not found at '$PYTHON_SCRIPT'."
     exit 1
 fi
 
-python3 02_train_models.py "$DB_NAME"
+python3 "$PYTHON_SCRIPT" "$DB_NAME"
 
-echo "🎉 Pipeline finished successfully!"
+echo "🎉 Pipeline completed successfully!"
