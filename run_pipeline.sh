@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e  # Exit immediately on error
+set -e  
 set -o pipefail
 
 echo "🔧 ML Data Pipeline Setup"
@@ -19,7 +19,10 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 
 if ! conda info --envs | awk '{print $1}' | grep -qx "$CONDA_ENV"; then
     echo "📦 Creating Conda environment '$CONDA_ENV'..."
-    conda create -y -n "$CONDA_ENV" python=3.10 pandas scikit-learn matplotlib xgboost lightgbm pytorch seaborn -c conda-forge -c pytorch
+    conda create -y -n "$CONDA_ENV" python=3.10 \
+        pandas scikit-learn matplotlib seaborn \
+        xgboost lightgbm pytorch shap plotly joblib \
+        -c conda-forge -c pytorch
 else
     echo "✅ Conda environment '$CONDA_ENV' already exists."
 fi
