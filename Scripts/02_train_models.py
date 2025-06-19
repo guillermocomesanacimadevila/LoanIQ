@@ -11,13 +11,18 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold, learning_curve
 from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import LabelEncoder
+import plotly.express as px
+import plotly.graph_objects as go
+import shap
+import joblib
+import os
 
 print("✅ [1/6] Libraries imported.")
 
@@ -55,19 +60,37 @@ class BaseClassifier:
 
         print(classification_report(y_test, preds))
         print(f"🏁 ROC AUC: {roc_auc_score(y_test, proba):.4f}")
+        self._plot_confusion_matrix(confusion_matrix(y_test, preds))
+        self._plot_learning_curve()
 
-        cm = confusion_matrix(y_test, preds)
-        self._plot_confusion_matrix(cm)
         print("-" * 60)
 
-    def _plot_confusion_matrix(self, cm, title="Confusion Matrix"):
-        plt.figure(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[0, 1], yticklabels=[0, 1])
-        plt.xlabel("Predicted")
-        plt.ylabel("Actual")
-        plt.title(title)
-        plt.tight_layout()
-        plt.show()
+    def _plot_confusion_matrix(self, cm):
+        fig = go.Figure(data=go.Heatmap(
+            z=cm,
+            x=["Predicted: 0", "Predicted: 1"],
+            y=["Actual: 0", "Actual: 1"],
+            colorscale="Blues",
+            showscale=False,
+            text=cm,
+            texttemplate="%{text}"
+        ))
+        fig.update_layout(title="Confusion Matrix", margin=dict(t=30, b=0))
+        fig.show()
+
+    def _plot_learning_curve(self):
+        train_sizes, train_scores, test_scores = learning_curve(
+            self.model, X, y, cv=5, scoring='roc_auc',
+            train_sizes=np.linspace(0.1, 1.0, 5), n_jobs=-1
+        )
+        train_scores_mean = np.mean(train_scores, axis=1)
+        test_scores_mean = np.mean(test_scores, axis=1)
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=train_sizes, y=train_scores_mean, mode='lines+markers', name='Train AUC'))
+        fig.add_trace(go.Scatter(x=train_sizes, y=test_scores_mean, mode='lines+markers', name='Validation AUC'))
+        fig.update_layout(title='Learning Curve', xaxis_title='Training Size', yaxis_title='AUC Score')
+        fig.show()
 
     def feature_importance(self, feature_names):
         if hasattr(self.model, 'best_estimator_'):
@@ -78,21 +101,34 @@ class BaseClassifier:
         if hasattr(model, 'feature_importances_'):
             importances = model.feature_importances_
             sorted_idx = np.argsort(importances)[::-1]
-            plt.figure(figsize=(10, 6))
-            plt.bar(range(len(importances)), importances[sorted_idx])
-            plt.xticks(range(len(importances)), np.array(feature_names)[sorted_idx], rotation=90)
-            plt.title("Feature Importances")
-            plt.tight_layout()
-            plt.show()
+            fig = px.bar(
+                x=np.array(feature_names)[sorted_idx],
+                y=importances[sorted_idx],
+                labels={'x': 'Features', 'y': 'Importance'},
+                title="🔍 Feature Importances"
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            fig.show()
+
         elif hasattr(model, 'coef_'):
             importances = np.abs(model.coef_[0])
             sorted_idx = np.argsort(importances)[::-1]
-            plt.figure(figsize=(10, 6))
-            plt.bar(range(len(importances)), importances[sorted_idx])
-            plt.xticks(range(len(importances)), np.array(feature_names)[sorted_idx], rotation=90)
-            plt.title("Coefficient Magnitudes")
-            plt.tight_layout()
-            plt.show()
+            fig = px.bar(
+                x=np.array(feature_names)[sorted_idx],
+                y=importances[sorted_idx],
+                labels={'x': 'Features', 'y': 'Coefficient Magnitude'},
+                title="📊 Coefficients"
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            fig.show()
+
+        # SHAP Explanation
+        try:
+            explainer = shap.Explainer(model, X)
+            shap_values = explainer(X)
+            shap.summary_plot(shap_values, X, feature_names=feature_names, plot_type="bar")
+        except Exception as e:
+            print(f"⚠️ SHAP not supported for this model: {e}")
 
 # ========================
 # 3. Model Wrappers
@@ -207,17 +243,19 @@ class NeuralNetModel:
         print(f"🏁 ROC AUC: {roc_auc_score(y_test, proba):.4f}")
 
         cm = confusion_matrix(y_test, preds)
-        self._plot_confusion_matrix(cm)
-        print("-" * 60)
+        fig = go.Figure(data=go.Heatmap(
+            z=cm,
+            x=["Predicted: 0", "Predicted: 1"],
+            y=["Actual: 0", "Actual: 1"],
+            colorscale="Blues",
+            showscale=False,
+            text=cm,
+            texttemplate="%{text}"
+        ))
+        fig.update_layout(title="Confusion Matrix (Neural Net)", margin=dict(t=30, b=0))
+        fig.show()
 
-    def _plot_confusion_matrix(self, cm):
-        plt.figure(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[0, 1], yticklabels=[0, 1])
-        plt.xlabel("Predicted")
-        plt.ylabel("Actual")
-        plt.title("Confusion Matrix (Neural Net)")
-        plt.tight_layout()
-        plt.show()
+        print("-" * 60)
 
 # ========================
 # 5. Run All Models
@@ -239,8 +277,48 @@ def run_all_models(X, y, feature_names):
         print(f"\n🚀 Running: {name}")
         model.train(X_train, y_train)
         model.evaluate(X_test, y_test)
+
         if hasattr(model, 'feature_importance'):
             model.feature_importance(feature_names)
+
+        if hasattr(model, "model") and hasattr(model.model, "predict_proba"):
+            plot_learning_curve(model.model, X_train, y_train, name)
+            shap_summary_plot(model.model, X_train, feature_names, name)
+
+
+def plot_learning_curve(model, X, y, title):
+    print(f"📈 Generating learning curve for: {title}")
+    from sklearn.model_selection import learning_curve
+
+    train_sizes, train_scores, test_scores = learning_curve(
+        model, X, y, cv=5, scoring='roc_auc', train_sizes=np.linspace(0.1, 1.0, 5)
+    )
+
+    train_mean = np.mean(train_scores, axis=1)
+    test_mean = np.mean(test_scores, axis=1)
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=train_sizes, y=train_mean, mode='lines+markers', name='Train AUC'))
+    fig.add_trace(go.Scatter(x=train_sizes, y=test_mean, mode='lines+markers', name='Validation AUC'))
+
+    fig.update_layout(
+        title=f"Learning Curve: {title}",
+        xaxis_title="Training Set Size",
+        yaxis_title="AUC Score",
+        template="plotly_white",
+        margin=dict(t=50, l=40, r=40, b=40)
+    )
+    fig.show()
+
+
+def shap_summary_plot(model, X_train, feature_names, model_name):
+    print(f"🔍 Generating SHAP plot for: {model_name}")
+    try:
+        explainer = shap.Explainer(model.best_estimator_ if hasattr(model, 'best_estimator_') else model, X_train)
+        shap_values = explainer(X_train)
+        shap.plots.beeswarm(shap_values, show=True)
+    except Exception as e:
+        print(f"⚠️ SHAP failed for {model_name}: {e}")
 
 # ========================
 # 6. Main Entry
