@@ -2,6 +2,10 @@
 
 set -e  
 set -o pipefail
+trap 'echo "⚠️ Pipeline terminated unexpectedly."; exit 1' ERR
+
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
 
 START_TIME=$(date +%s)
 
@@ -15,6 +19,12 @@ read -p "🐍 Enter Conda environment name to use/create (e.g., ml-env): " CONDA
 # Ensure DB file ends in .db
 [[ "$DB_NAME" != *.db ]] && DB_NAME="${DB_NAME}.db"
 
+# Verify CSV exists
+if [[ ! -f "$CSV_PATH" ]]; then
+    echo "❌ Error: Input CSV file '$CSV_PATH' not found."
+    exit 1
+fi
+
 # === 2. Conda setup ===
 echo "🧪 Checking or creating Conda environment '$CONDA_ENV'..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
@@ -26,9 +36,15 @@ if ! conda info --envs | awk '{print $1}' | grep -qx "$CONDA_ENV"; then
         xgboost lightgbm pytorch shap plotly joblib \
         polars sqlite pyarrow \
         -c conda-forge -c pytorch
-else
-    echo "✅ Conda environment '$CONDA_ENV' already exists."
 fi
+
+# Re-check environment exists
+if ! conda info --envs | awk '{print $1}' | grep -qx "$CONDA_ENV"; then
+    echo "❌ Error: Conda environment '$CONDA_ENV' failed to create."
+    exit 1
+fi
+
+echo "✅ Conda environment '$CONDA_ENV' ready."
 
 # === 3. Activate environment ===
 echo "⚙️ Activating '$CONDA_ENV'..."
@@ -81,3 +97,4 @@ python3 "$PYTHON_SCRIPT" "$DB_NAME"
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 echo "🎉 Pipeline completed successfully in ${ELAPSED}s!"
+echo "📅 Completed at: $(date)"
