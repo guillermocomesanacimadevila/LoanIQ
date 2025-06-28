@@ -11,23 +11,26 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold, learning_curve
+from sklearn.model_selection import train_test_split, GridSearchCV, StratifiedKFold
 from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import LabelEncoder
-import plotly.express as px
-import plotly.graph_objects as go
-import shap
-import joblib
 import os
+from datetime import datetime
 
 print("✅ [1/6] Libraries imported.")
 
 # ========================
-# 2. Base Classifier Interface
+# 2. Results directory
+# ========================
+RESULTS_DIR = "./Results"
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+# ========================
+# 3. Base Classifier Interface
 # ========================
 class BaseClassifier:
     def __init__(self, model):
@@ -37,62 +40,35 @@ class BaseClassifier:
         print("🔧 Training model...")
         self.model.fit(X_train, y_train)
 
-    def cross_validate(self, X, y):
-        print("📊 Cross-validating...")
-        scores = []
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        for train_idx, test_idx in cv.split(X, y):
-            self.model.fit(X[train_idx], y[train_idx])
-            probas = self.model.predict_proba(X[test_idx])[:, 1]
-            auc = roc_auc_score(y[test_idx], probas)
-            scores.append(auc)
-        print(f"✅ Mean AUC: {np.mean(scores):.4f} ± {np.std(scores):.4f}")
-
     def predict(self, X):
         return self.model.predict(X)
 
     def predict_proba(self, X):
         return self.model.predict_proba(X)[:, 1]
 
-    def evaluate(self, X_test, y_test):
+    def evaluate(self, X_test, y_test, model_name):
         preds = self.predict(X_test)
         proba = self.predict_proba(X_test)
 
-        print(classification_report(y_test, preds))
-        print(f"🏁 ROC AUC: {roc_auc_score(y_test, proba):.4f}")
-        self._plot_confusion_matrix(confusion_matrix(y_test, preds))
-        self._plot_learning_curve()
+        report = classification_report(y_test, preds, output_dict=True)
+        auc = roc_auc_score(y_test, proba)
+        cm = confusion_matrix(y_test, preds)
 
-        print("-" * 60)
+        # Save confusion matrix
+        cm_path = os.path.join(RESULTS_DIR, f"{model_name}_confusion_matrix.png")
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=[0, 1], yticklabels=[0, 1])
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
+        plt.title(f"{model_name} Confusion Matrix")
+        plt.tight_layout()
+        plt.savefig(cm_path)
+        plt.close()
+        print(f"📊 Saved confusion matrix to {cm_path}")
 
-    def _plot_confusion_matrix(self, cm):
-        fig = go.Figure(data=go.Heatmap(
-            z=cm,
-            x=["Predicted: 0", "Predicted: 1"],
-            y=["Actual: 0", "Actual: 1"],
-            colorscale="Blues",
-            showscale=False,
-            text=cm,
-            texttemplate="%{text}"
-        ))
-        fig.update_layout(title="Confusion Matrix", margin=dict(t=30, b=0))
-        fig.show()
+        return report, auc, cm_path
 
-    def _plot_learning_curve(self):
-        train_sizes, train_scores, test_scores = learning_curve(
-            self.model, X, y, cv=5, scoring='roc_auc',
-            train_sizes=np.linspace(0.1, 1.0, 5), n_jobs=-1
-        )
-        train_scores_mean = np.mean(train_scores, axis=1)
-        test_scores_mean = np.mean(test_scores, axis=1)
-
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=train_sizes, y=train_scores_mean, mode='lines+markers', name='Train AUC'))
-        fig.add_trace(go.Scatter(x=train_sizes, y=test_scores_mean, mode='lines+markers', name='Validation AUC'))
-        fig.update_layout(title='Learning Curve', xaxis_title='Training Size', yaxis_title='AUC Score')
-        fig.show()
-
-    def feature_importance(self, feature_names):
+    def feature_importance(self, feature_names, model_name):
         if hasattr(self.model, 'best_estimator_'):
             model = self.model.best_estimator_
         else:
@@ -101,37 +77,21 @@ class BaseClassifier:
         if hasattr(model, 'feature_importances_'):
             importances = model.feature_importances_
             sorted_idx = np.argsort(importances)[::-1]
-            fig = px.bar(
-                x=np.array(feature_names)[sorted_idx],
-                y=importances[sorted_idx],
-                labels={'x': 'Features', 'y': 'Importance'},
-                title="🔍 Feature Importances"
-            )
-            fig.update_layout(xaxis_tickangle=-45)
-            fig.show()
 
-        elif hasattr(model, 'coef_'):
-            importances = np.abs(model.coef_[0])
-            sorted_idx = np.argsort(importances)[::-1]
-            fig = px.bar(
-                x=np.array(feature_names)[sorted_idx],
-                y=importances[sorted_idx],
-                labels={'x': 'Features', 'y': 'Coefficient Magnitude'},
-                title="📊 Coefficients"
-            )
-            fig.update_layout(xaxis_tickangle=-45)
-            fig.show()
-
-        # SHAP Explanation
-        try:
-            explainer = shap.Explainer(model, X)
-            shap_values = explainer(X)
-            shap.summary_plot(shap_values, X, feature_names=feature_names, plot_type="bar")
-        except Exception as e:
-            print(f"⚠️ SHAP not supported for this model: {e}")
+            fi_path = os.path.join(RESULTS_DIR, f"{model_name}_feature_importance.png")
+            plt.figure(figsize=(10, 6))
+            plt.bar(range(len(importances)), importances[sorted_idx])
+            plt.xticks(range(len(importances)), np.array(feature_names)[sorted_idx], rotation=90)
+            plt.title(f"{model_name} Feature Importances")
+            plt.tight_layout()
+            plt.savefig(fi_path)
+            plt.close()
+            print(f"📊 Saved feature importances to {fi_path}")
+            return fi_path
+        return None
 
 # ========================
-# 3. Model Wrappers
+# 4. Model Wrappers
 # ========================
 class LogisticRegressionModel(BaseClassifier):
     def __init__(self):
@@ -184,144 +144,136 @@ class LightGBMModel(BaseClassifier):
         super().__init__(model)
 
 # ========================
-# 4. PyTorch Neural Network
+# 5. HTML Report Generator
 # ========================
-class SimpleNN(nn.Module):
-    def __init__(self, input_dim):
-        super(SimpleNN, self).__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, 64), nn.ReLU(), nn.Dropout(0.3),
-            nn.Linear(64, 32), nn.ReLU(), nn.Dropout(0.3),
-            nn.Linear(32, 1), nn.Sigmoid()
-        )
+def generate_html_report(results, output_file=os.path.join(RESULTS_DIR, "pipeline_report.html")):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(output_file, "w") as f:
+        f.write(f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>LoanIQ ML Pipeline Report</title>
+    <style>
+        body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f7;
+            margin: 0;
+            padding: 40px;
+            color: #2c3e50;
+        }}
+        header {{
+            text-align: center;
+            margin-bottom: 50px;
+        }}
+        h1 {{
+            font-size: 2.5em;
+            margin-bottom: 5px;
+        }}
+        p.subtitle {{
+            font-size: 1em;
+            color: #7f8c8d;
+        }}
+        h2 {{
+            color: #34495e;
+            border-bottom: 2px solid #bdc3c7;
+            padding-bottom: 10px;
+            margin-top: 50px;
+        }}
+        table {{
+            border-collapse: collapse;
+            width: 80%;
+            margin: 20px auto;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: center;
+        }}
+        th {{
+            background-color: #2980b9;
+            color: white;
+        }}
+        tr:nth-child(even) {{
+            background-color: #f2f2f2;
+        }}
+        img {{
+            display: block;
+            margin: 20px auto;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+            max-width: 80%;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }}
+        footer {{
+            text-align: center;
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-top: 60px;
+            border-top: 1px solid #ccc;
+            padding-top: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <header>
+        <h1>LoanIQ Machine Learning Pipeline Report</h1>
+        <p class="subtitle">Generated on {now}</p>
+    </header>
+""")
+        for model, content in results.items():
+            f.write(f"<h2>{model}</h2>")
+            f.write(f"<p><strong>ROC AUC:</strong> {content['auc']:.4f}</p>")
 
-    def forward(self, x):
-        return self.net(x)
+            f.write("<table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr>")
+            for metric in ['precision', 'recall', 'f1-score']:
+                row = content['report']
+                f.write(f"<tr><td>{metric.title()}</td><td>{row['0'][metric]:.2f}</td><td>{row['1'][metric]:.2f}</td></tr>")
+            f.write("</table>")
 
-class NeuralNetModel:
-    def __init__(self, input_dim, lr=1e-3, epochs=50, batch_size=64):
-        self.model = SimpleNN(input_dim)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-        self.lr = lr
-        self.epochs = epochs
-        self.batch_size = batch_size
+            for img in content['plots']:
+                f.write(f"<img src='{os.path.basename(img)}' alt='{model} plot'>")
 
-    def train(self, X_train, y_train):
-        X_train = torch.tensor(X_train, dtype=torch.float32)
-        y_train = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-        loader = DataLoader(TensorDataset(X_train, y_train), batch_size=self.batch_size, shuffle=True)
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-        criterion = nn.BCELoss()
-
-        self.model.train()
-        for _ in range(self.epochs):
-            for xb, yb in loader:
-                xb, yb = xb.to(self.device), yb.to(self.device)
-                optimizer.zero_grad()
-                loss = criterion(self.model(xb), yb)
-                loss.backward()
-                optimizer.step()
-
-    def predict(self, X):
-        self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            return (self.model(X).cpu().numpy() > 0.5).astype(int)
-
-    def predict_proba(self, X):
-        self.model.eval()
-        X = torch.tensor(X, dtype=torch.float32).to(self.device)
-        with torch.no_grad():
-            return self.model(X).cpu().numpy().flatten()
-
-    def evaluate(self, X_test, y_test):
-        preds = self.predict(X_test)
-        proba = self.predict_proba(X_test)
-
-        print(classification_report(y_test, preds))
-        print(f"🏁 ROC AUC: {roc_auc_score(y_test, proba):.4f}")
-
-        cm = confusion_matrix(y_test, preds)
-        fig = go.Figure(data=go.Heatmap(
-            z=cm,
-            x=["Predicted: 0", "Predicted: 1"],
-            y=["Actual: 0", "Actual: 1"],
-            colorscale="Blues",
-            showscale=False,
-            text=cm,
-            texttemplate="%{text}"
-        ))
-        fig.update_layout(title="Confusion Matrix (Neural Net)", margin=dict(t=30, b=0))
-        fig.show()
-
-        print("-" * 60)
+        f.write(f"""
+<footer>
+    <p>Prepared by Guillermo Comesaña – University of Bath<br>
+    David Monzon – Lloyds Private Banking</p>
+</footer>
+</body>
+</html>
+""")
+    print(f"✅ Generated HTML report: {output_file}")
 
 # ========================
-# 5. Run All Models
+# 6. Run All Models
 # ========================
 def run_all_models(X, y, feature_names):
     print("📊 Splitting data...")
     X_train, X_test, y_train, y_test = train_test_split(X, y, stratify=y, test_size=0.2, random_state=42)
-    input_dim = X.shape[1]
 
     models = {
         "Logistic Regression": LogisticRegressionModel(),
         "Random Forest": RandomForestModel(),
         "XGBoost": XGBoostModel(),
-        "LightGBM": LightGBMModel(),
-        "Neural Net (PyTorch)": NeuralNetModel(input_dim=input_dim)
+        "LightGBM": LightGBMModel()
     }
 
+    results = {}
     for name, model in models.items():
         print(f"\n🚀 Running: {name}")
         model.train(X_train, y_train)
-        model.evaluate(X_test, y_test)
+        report, auc, cm_plot = model.evaluate(X_test, y_test, name.replace(" ", "_"))
+        fi_plot = model.feature_importance(feature_names, name.replace(" ", "_"))
+        plots = [cm_plot]
+        if fi_plot: plots.append(fi_plot)
+        results[name] = {"report": report, "auc": auc, "plots": plots}
 
-        if hasattr(model, 'feature_importance'):
-            model.feature_importance(feature_names)
-
-        if hasattr(model, "model") and hasattr(model.model, "predict_proba"):
-            plot_learning_curve(model.model, X_train, y_train, name)
-            shap_summary_plot(model.model, X_train, feature_names, name)
-
-
-def plot_learning_curve(model, X, y, title):
-    print(f"📈 Generating learning curve for: {title}")
-    from sklearn.model_selection import learning_curve
-
-    train_sizes, train_scores, test_scores = learning_curve(
-        model, X, y, cv=5, scoring='roc_auc', train_sizes=np.linspace(0.1, 1.0, 5)
-    )
-
-    train_mean = np.mean(train_scores, axis=1)
-    test_mean = np.mean(test_scores, axis=1)
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=train_sizes, y=train_mean, mode='lines+markers', name='Train AUC'))
-    fig.add_trace(go.Scatter(x=train_sizes, y=test_mean, mode='lines+markers', name='Validation AUC'))
-
-    fig.update_layout(
-        title=f"Learning Curve: {title}",
-        xaxis_title="Training Set Size",
-        yaxis_title="AUC Score",
-        template="plotly_white",
-        margin=dict(t=50, l=40, r=40, b=40)
-    )
-    fig.show()
-
-
-def shap_summary_plot(model, X_train, feature_names, model_name):
-    print(f"🔍 Generating SHAP plot for: {model_name}")
-    try:
-        explainer = shap.Explainer(model.best_estimator_ if hasattr(model, 'best_estimator_') else model, X_train)
-        shap_values = explainer(X_train)
-        shap.plots.beeswarm(shap_values, show=True)
-    except Exception as e:
-        print(f"⚠️ SHAP failed for {model_name}: {e}")
+    generate_html_report(results)
 
 # ========================
-# 6. Main Entry
+# 7. Main Entry
 # ========================
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -331,12 +283,11 @@ if __name__ == "__main__":
     db_path = sys.argv[1]
     print(f"📂 Connecting to SQLite database: {db_path}")
     conn = sqlite3.connect(db_path)
-
     df = pd.read_sql_query("SELECT * FROM loan_data", conn)
     conn.close()
-    print("✅ Loaded cleaned data.")
 
-    target_col = 'Defaulted'
+    print("✅ Loaded cleaned data.")
+    target_col = 'Default'
     if target_col not in df.columns:
         print(f"❌ Target column '{target_col}' not found.")
         sys.exit(1)
@@ -347,6 +298,12 @@ if __name__ == "__main__":
 
     for col in X.select_dtypes(include='object').columns:
         print(f"🔠 Encoding: {col}")
-        X[col] = LabelEncoder().fit_transform(X[col])
+        X[col] = LabelEncoder().fit_transform(X[col].astype(str))
+
+    print("🔎 Checking for missing values...")
+    for col in X.columns[X.isna().any()]:
+        median = X[col].median()
+        X[col].fillna(median, inplace=True)
+        print(f"🛠️ Imputed '{col}' with median: {median}")
 
     run_all_models(X.values, y.values, feature_names)
