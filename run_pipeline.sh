@@ -3,6 +3,8 @@
 set -e  
 set -o pipefail
 
+START_TIME=$(date +%s)
+
 echo "🔧 ML Data Pipeline Setup"
 
 # === 1. Prompt for input ===
@@ -20,8 +22,9 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 if ! conda info --envs | awk '{print $1}' | grep -qx "$CONDA_ENV"; then
     echo "📦 Creating Conda environment '$CONDA_ENV'..."
     conda create -y -n "$CONDA_ENV" python=3.10 \
-        pandas scikit-learn matplotlib seaborn \
+        pandas numpy scikit-learn matplotlib seaborn \
         xgboost lightgbm pytorch shap plotly joblib \
+        polars sqlite pyarrow \
         -c conda-forge -c pytorch
 else
     echo "✅ Conda environment '$CONDA_ENV' already exists."
@@ -31,36 +34,40 @@ fi
 echo "⚙️ Activating '$CONDA_ENV'..."
 conda activate "$CONDA_ENV"
 
-# === 4. Load CSV into SQLite ===
-echo "📥 Importing CSV into SQLite database '$DB_NAME'..."
-python3 - <<EOF
-import pandas as pd
-import sqlite3
+# === 4. Ensure output directories exist ===
+OUTPUT_DIR="$(pwd)/Reports"
+mkdir -p "$OUTPUT_DIR"
 
-csv_path = "$CSV_PATH"
-db_name = "$DB_NAME"
+# === 5. Run Python-based data cleaning ===
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-${0}}" )" && pwd )/Scripts"
+CLEANING_SCRIPT="${SCRIPT_DIR}/01_data_cleaning.py"
 
-df = pd.read_csv(csv_path)
-conn = sqlite3.connect(db_name)
-df.to_sql("loan_data", conn, if_exists="replace", index=False)
-conn.close()
-print("✅ Data successfully loaded into 'loan_data' table.")
-EOF
-
-# === 5. Run SQL cleaning script ===
-echo "🧹 Running data cleaning SQL..."
-SCRIPT_DIR="./Scripts"
-SQL_FILE="${SCRIPT_DIR}/01_data_cleaning.sql"
-
-if [[ ! -f "$SQL_FILE" ]]; then
-    echo "❌ Error: SQL cleaning file not found at '$SQL_FILE'."
+if [[ ! -f "$CLEANING_SCRIPT" ]]; then
+    echo "❌ Error: Python data cleaning script not found at '$CLEANING_SCRIPT'."
     exit 1
 fi
 
-sqlite3 "$DB_NAME" < "$SQL_FILE"
-echo "✅ SQL cleaning completed."
+echo "🧹 Cleaning data using Polars..."
+python3 "$CLEANING_SCRIPT" "$CSV_PATH"
+echo "✅ Data cleaning completed."
 
-# === 6. Run ML training script ===
+# === 6. Load cleaned CSV into SQLite ===
+echo "📥 Importing cleaned CSV into SQLite database '$DB_NAME'..."
+python3 - <<EOF
+import polars as pl
+import sqlite3
+
+csv_path = "${CSV_PATH%.csv}_cleaned.csv"
+db_name = "$DB_NAME"
+
+df = pl.read_csv(csv_path).to_pandas()
+conn = sqlite3.connect(db_name)
+df.to_sql("loan_data", conn, if_exists="replace", index=False)
+conn.close()
+print("✅ Cleaned data successfully loaded into 'loan_data' table.")
+EOF
+
+# === 7. Run ML training script ===
 echo "🤖 Running ML model pipeline..."
 PYTHON_SCRIPT="${SCRIPT_DIR}/02_train_models.py"
 
@@ -71,4 +78,6 @@ fi
 
 python3 "$PYTHON_SCRIPT" "$DB_NAME"
 
-echo "🎉 Pipeline completed successfully!"
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+echo "🎉 Pipeline completed successfully in ${ELAPSED}s!"
