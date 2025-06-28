@@ -1,0 +1,109 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lloyds & Bath ML Report</title>
+<style>
+:root {
+    --primary-color: #003366;
+    --secondary-color: #005eb8;
+    --bg-color: #f4f6f7;
+    --text-color: #333;
+    --card-bg: white;
+}
+[data-theme='dark'] {
+    --bg-color: #121212;
+    --text-color: #e0e0e0;
+    --card-bg: #1e1e1e;
+}
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    padding: 40px;
+    transition: 0.3s;
+}
+header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+.logo-container {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-bottom: 20px;
+}
+.logo {
+    max-height: 60px;
+}
+h1 {
+    color: var(--primary-color);
+}
+.toggle-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 20px;
+    cursor: pointer;
+}
+h2 {
+    color: var(--secondary-color);
+    border-bottom: 2px solid var(--primary-color);
+    padding-bottom: 10px;
+}
+table {
+    border-collapse: collapse;
+    width: 90%;
+    margin: 20px auto;
+    background: var(--card-bg);
+}
+th, td {
+    border: 1px solid #ddd;
+    padding: 12px;
+    text-align: center;
+}
+th {
+    background: var(--primary-color);
+    color: white;
+}
+img.plot {
+    display: block;
+    margin: 25px auto;
+    max-width: 80%;
+}
+footer {
+    text-align: center;
+    margin-top: 60px;
+    border-top: 1px solid #ccc;
+    padding-top: 20px;
+}
+</style>
+</head>
+<body data-theme="light">
+<button class="toggle-btn" onclick="toggleTheme()">Toggle Light/Dark</button>
+<header>
+    <div class="logo-container">
+        <img src="lloyds.jpeg" alt="Lloyds" class="logo">
+        <img src="bath.jpg" alt="Bath" class="logo">
+    </div>
+    <h1>Machine Learning Pipeline Report</h1>
+    <p>Generated on 2025-06-28 17:57:18</p>
+</header>
+<script>
+function toggleTheme() {
+    const body = document.body;
+    body.setAttribute('data-theme', body.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
+}
+</script>
+<h2>Logistic Regression</h2><p><strong>ROC AUC:</strong> 0.7013</p><table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr><tr><td>Precision</td><td>0.89</td><td>0.00</td></tr><tr><td>Recall</td><td>1.00</td><td>0.00</td></tr><tr><td>F1-Score</td><td>0.94</td><td>0.00</td></tr></table><img src='Logistic_Regression_confusion_matrix.png' class='plot'><h2>Random Forest</h2><p><strong>ROC AUC:</strong> 0.6582</p><table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr><tr><td>Precision</td><td>0.89</td><td>0.00</td></tr><tr><td>Recall</td><td>1.00</td><td>0.00</td></tr><tr><td>F1-Score</td><td>0.94</td><td>0.00</td></tr></table><img src='Random_Forest_confusion_matrix.png' class='plot'><img src='Random_Forest_feature_importance.png' class='plot'><h2>XGBoost</h2><p><strong>ROC AUC:</strong> 0.7734</p><table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr><tr><td>Precision</td><td>0.90</td><td>0.50</td></tr><tr><td>Recall</td><td>0.99</td><td>0.10</td></tr><tr><td>F1-Score</td><td>0.94</td><td>0.17</td></tr></table><img src='XGBoost_confusion_matrix.png' class='plot'><img src='XGBoost_feature_importance.png' class='plot'><h2>LightGBM</h2><p><strong>ROC AUC:</strong> 0.7835</p><table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr><tr><td>Precision</td><td>0.90</td><td>1.00</td></tr><tr><td>Recall</td><td>1.00</td><td>0.10</td></tr><tr><td>F1-Score</td><td>0.95</td><td>0.18</td></tr></table><img src='LightGBM_confusion_matrix.png' class='plot'><img src='LightGBM_feature_importance.png' class='plot'>
+<footer>
+<p>Prepared by Guillermo Comesaña – University of Bath<br>
+David Monzon – Lloyds Private Banking</p>
+</footer>
+</body>
+</html>
