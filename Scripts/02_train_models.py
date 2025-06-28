@@ -61,11 +61,15 @@ class BaseClassifier:
         auc = roc_auc_score(y_test, proba)
         cm = confusion_matrix(y_test, preds)
 
-        # Save confusion matrix
+        # Save confusion matrix with meaningful labels
         cm_path = os.path.join(RESULTS_DIR, f"{model_name}_confusion_matrix.png")
         plt.figure(figsize=(6, 5))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                    xticklabels=['Performing Loan', 'Defaulted Loan'],
+                    yticklabels=['Performing Loan', 'Defaulted Loan'])
         plt.title(f"{model_name} Confusion Matrix")
+        plt.xlabel("Predicted")
+        plt.ylabel("Actual")
         plt.tight_layout()
         plt.savefig(cm_path)
         plt.close()
@@ -137,6 +141,7 @@ class LightGBMModel(BaseClassifier):
 # 5. HTML Report Generator
 # ========================
 def generate_html_report(results, output_file=os.path.join(RESULTS_DIR, "pipeline_report.html")):
+    label_mapping = {'0': 'Performing Loan', '1': 'Defaulted Loan'}
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(output_file, "w") as f:
         f.write(f"""
@@ -145,6 +150,8 @@ def generate_html_report(results, output_file=os.path.join(RESULTS_DIR, "pipelin
 <head>
 <meta charset="UTF-8">
 <title>Lloyds & Bath ML Report</title>
+<meta name="author" content="Guillermo Comesaña, University of Bath and David Monzon, Lloyds Private Banking">
+<meta name="description" content="End-to-end ML pipeline report for loan default classification with Logistic Regression, Random Forest, XGBoost, and LightGBM models.">
 <style>
 :root {{
     --primary-color: #003366;
@@ -245,7 +252,7 @@ function toggleTheme() {{
         for model, content in results.items():
             f.write(f"<h2>{model}</h2>")
             f.write(f"<p><strong>ROC AUC:</strong> {content['auc']:.4f}</p>")
-            f.write("<table><tr><th>Metric</th><th>Class 0</th><th>Class 1</th></tr>")
+            f.write(f"<table><tr><th>Metric</th><th>{label_mapping['0']}</th><th>{label_mapping['1']}</th></tr>")
             for metric in ['precision', 'recall', 'f1-score']:
                 row = content['report']
                 f.write(f"<tr><td>{metric.title()}</td><td>{row['0'][metric]:.2f}</td><td>{row['1'][metric]:.2f}</td></tr>")
