@@ -1,4 +1,4 @@
-# LoanIQ
+# 📈 LoanIQ 
 
 ## 🚀 Run LoanIQ
 
