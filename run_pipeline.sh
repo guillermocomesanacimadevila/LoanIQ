@@ -11,7 +11,9 @@ START_TIME=$(date +%s)
 
 echo "🔧 ML Data Pipeline Setup"
 
-# === 1. Prompt for input ===
+# ========================
+# 1. Prompt for input
+# ========================
 read -p "📄 Enter path to input CSV file: " CSV_PATH
 read -p "💾 Enter desired SQLite DB name (e.g., loan_data.db): " DB_NAME
 read -p "🐍 Enter Conda environment name to use/create (e.g., ml-env): " CONDA_ENV
@@ -25,7 +27,9 @@ if [[ ! -f "$CSV_PATH" ]]; then
     exit 1
 fi
 
-# === 2. Conda setup ===
+# ========================
+# 2. Conda setup
+# ========================
 echo "🧪 Checking or creating Conda environment '$CONDA_ENV'..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
@@ -46,15 +50,21 @@ fi
 
 echo "✅ Conda environment '$CONDA_ENV' ready."
 
-# === 3. Activate environment ===
+# ========================
+# 3. Activate environment
+# ========================
 echo "⚙️ Activating '$CONDA_ENV'..."
 conda activate "$CONDA_ENV"
 
-# === 4. Ensure output directories exist ===
+# ========================
+# 4. Ensure output directories exist
+# ========================
 OUTPUT_DIR="$(pwd)/Reports"
 mkdir -p "$OUTPUT_DIR"
 
-# === 5. Run Python-based data cleaning ===
+# ========================
+# 5. Run Python-based data cleaning
+# ========================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]:-${0}}" )" && pwd )/Scripts"
 CLEANING_SCRIPT="${SCRIPT_DIR}/01_data_cleaning.py"
 
@@ -67,7 +77,9 @@ echo "🧹 Cleaning data using Polars..."
 python3 "$CLEANING_SCRIPT" "$CSV_PATH"
 echo "✅ Data cleaning completed."
 
-# === 6. Load cleaned CSV into SQLite ===
+# ========================
+# 6. Load cleaned CSV into SQLite
+# ========================
 echo "📥 Importing cleaned CSV into SQLite database '$DB_NAME'..."
 python3 - <<EOF
 import polars as pl
@@ -83,7 +95,9 @@ conn.close()
 print("✅ Cleaned data successfully loaded into 'loan_data' table.")
 EOF
 
-# === 7. Run ML training script ===
+# ========================
+# 7. Run ML training script
+# ========================
 echo "🤖 Running ML model pipeline..."
 PYTHON_SCRIPT="${SCRIPT_DIR}/02_train_models.py"
 
@@ -98,3 +112,20 @@ END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 echo "🎉 Pipeline completed successfully in ${ELAPSED}s!"
 echo "📅 Completed at: $(date)"
+
+# ========================
+# 8. Open HTML report automatically
+# ========================
+REPORT_PATH="./Results/pipeline_report.html"
+if [[ -f "$REPORT_PATH" ]]; then
+    echo "📂 Opening HTML report: $REPORT_PATH"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        open "$REPORT_PATH"   # macOS
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        xdg-open "$REPORT_PATH"  # Linux
+    else
+        echo "⚠️ Please open the report manually at: $REPORT_PATH"
+    fi
+else
+    echo "⚠️ Report not found at $REPORT_PATH"
+fi
