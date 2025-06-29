@@ -9,7 +9,7 @@ export LANG=en_US.UTF-8
 
 START_TIME=$(date +%s)
 
-echo "🔧 ML Data Pipeline Setup"
+echo "🔧 LoanIQ ML Pipeline Setup"
 
 # ========================
 # 1. Prompt for input
